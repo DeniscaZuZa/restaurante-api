@@ -1,89 +1,174 @@
+
+
 require("dotenv").config()
 const express = require("express")
 const cors = require("cors")
 const db = require("./config/database")
+const jwt = require("jsonwebtoken")
+const bcrypt = require("bcrypt")
+
+const auth = require("./middleware/auth")
 
 const app = express()
 
 const PORT = 3001
 
-
-
 app.use(express.json())
-app.use(cors())
 
 app.get("/",(req,res)=>{
-    res.json({
-        mensagem:"API funcionando"
-    })
+  res.json({
+    mensagem:"API funcionando"
+  })
 })
 
+app.post("/login", async (req, res) => {
 
-app.get("/produto", async (req,res)=>{
-    try {
-        const [produtos] = await db.query(
-            "SELECT * from produtos"
-        )
-        res.json(produtos)
-    } catch (error) {
-        console.log(error)
-    }
+  const {email,senha} = req.body
+  try {
+    const [usuarios] = await db.query(
+      "SELECT * FROM usuario where email = ?",
+      [email]
+    )
+
+    if(usuarios.length === 0){
+      return res.status(401).json({mensagem:"Email ou senha não encontrados"})
+    }
+
+    const usuario = usuarios[0]
+
+const senhaValida = await bcrypt.compare(
+    senha,
+    usuario.senha
+)
+
+
+if(!senhaValida){
+    return res.status(401).json({
+        mensagem:"Senha Invalida"
+    })
+}
+
+  /*  if(usuario.senha !== senha){
+      return res.status(401).json({
+        mensagem:"Email ou senha inválidos"
+      })
+    }*/
+      const token = jwt.sign(
+        {
+          id: usuario.id,
+          email: usuario.email
+        },
+        process.env.JWT_SECRET,
+        {
+          expiresIn:"1h"
+        }
+
+      )
+      res.json({
+          mensagem:"login realizado",
+
+     token
+
+        })
+  
+
+  } catch (error) {
+    console.error(error)
+    res.status(500).json(
+      {
+    mensagem:"Erro no login"
+      }
+    )
+    
+    
+  }
 })
 
 app.post("/produto", async (req, res) => {
-    try {
-        const { descricao, categoria, preco, imagem } = req.body;
+  try {
+    const { descricao, categoria, preco, imagem } = req.body;
 
-        const sql = `
-            INSERT INTO produtos (descricao, categoria, preco, imagem)
-            VALUES (?, ?, ?, ?)
-        `;
+    const sql = `
+      INSERT INTO produtos (descricao, categoria, preco, imagem)
+      VALUES (?, ?, ?, ?)
+    `;
 
-        const [result] = await db.execute(sql, [
-            descricao,
-            categoria,
-            preco,
-            imagem
-        ]);
+    const [result] = await db.execute(sql, [
+      descricao,
+      categoria,
+      preco,
+      imagem
+    ]);
 
-        res.status(201).json({
-            mensagem: "Produto cadastrado com sucesso",
-            produto: {
-                id: result.insertId,
-                descricao,
-                categoria,
-                preco,
-                imagem
-            }
-        });
+    res.status(201).json({
+      mensagem: "Produto cadastrado com sucesso",
+      produto: {
+        id: result.insertId,
+        descricao,
+        categoria,
+        preco,
+        imagem
+      }
+    });
 
-    } catch (error) {
-        console.error(error);
+  } catch (error) {
+    console.error(error);
 
-        res.status(500).json({
-            mensagem: "Erro ao cadastrar produto"
-        });
-    }
+    res.status(500).json({
+      mensagem: "Erro ao cadastrar produto"
+    });
+  }
 });
 
+app.get("/produto", auth, async (req,res) =>{
+  try {
+    const [produtos] = await db.query(
+      "SELECT * from produtos"
+    )
 
-app.delete("/produto/:id",async(req,res)=>{
-    try {
-        const {id} = req.params
+    res.json(produtos)
+  } catch (error) {
+    console.log(error)
+  }
+})
 
-        await db.query("DELETE FROM produtos WHERE id = ?",[id])
+app.post("/register", async (req, res)=>{
+  try {
+    
+    const {nome,email, senha} = req.body
 
-        res.json({mensagem:"Produto deletado com sucesso"})
+    if(!nome || !email || !senha){
+      res.status(400).json({
+        mensagem:"Preencha todos os campos"
+      })
+    }
 
-    } catch (error) {
-        console.log(error)
-        res.json({
-            erro: "Erro ao deletar o produto"
-        })
-    }
+    const [usuarioExistente] = await db.query(
+      "SELECT id FROM usuario WHERE email = ?",
+      [email]
+    )
+
+if(usuarioExistente.length > 0){
+    return res.status(400).json({
+        mensagem:"E-mail já cadastrado"
+    })
+}
+
+const senhaHash = await bcrypt.hash(senha,10)
+
+await db.query(
+    "INSERT INTO usuario(nome, email,senha)VALUE(?,?,?)",
+    [nome,email,senhaHash ]
+)
+  } catch (error) {
+    console.error(error)
+
+    res.status(500).json({
+      mensagem:"Erro interno do servidor"
+    })
+  }
 })
 
 app.listen(PORT, ()=>{
-    console.log("Servidor rodando na porta 3001")
+  console.log("Servidor rodando na porta 3001")
 })
-
